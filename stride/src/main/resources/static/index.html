@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stride Terminal</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&display=swap');
+
+body {
+    font-family: "Fira Code", monospace;
+    background: #111;
+    color: #fff;
+    margin: 0;
+    padding: 2rem;
+    min-height: 100vh;
+    box-sizing: border-box;
+}
+
+h1 {
+    font-size: 2.2rem;
+    margin-bottom: 2rem;
+    color: #ffd600;
+    text-align: center;
+}
+
+#menu {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    padding: 1.5rem;
+    max-width: 100%;
+    margin: 0 auto 2rem auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+#menu input {
+    width: auto;
+    padding: 1rem;
+    border-radius: 12px;
+    border: none;
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+    font-size: 1rem;
+    outline: none;
+}
+
+#menu button {
+    padding: 0.7rem 1.2rem;
+    border-radius: 12px;
+    border: none;
+    background: #ffd600;
+    color: #111;
+    font-weight: 700;
+    cursor: pointer;
+    transition: 0.2s;
+}
+#menu button:hover {
+    background: #ffc107;
+}
+
+/* Terminal output spans full width */
+#terminalOutput {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(8px);
+    border-radius: 12px;
+    padding: 1rem;
+    width: 100%;
+    margin-bottom: 1.5rem;
+    /* overflow-y: auto; */  /* remove scrolling */
+    box-sizing: border-box;
+    white-space: pre-wrap;   /* allow wrapping */
+    word-break: break-word;  /* prevent overflow */
+    max-height: none;        /* no height limit */
+    font-size: 1rem;       /* increased font size */
+}
+
+
+/* Gemini summaries container */
+#geminiContainer {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+/* Individual summary boxes */
+.geminiBox {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(8px);
+    border-radius: 12px;
+    padding: 1rem;
+    flex: 1 1 48%; /* 2 per row, flexible */
+    min-width: 250px;
+    box-sizing: border-box;
+    overflow-y: auto;
+}
+
+.geminiBox h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.1rem;
+    color: #ffd600;
+}
+
+@media (max-width: 900px){
+    #menu { max-width: 95%; }
+    #terminalOutput { width: 95%; }
+}
+
+@media (max-width: 600px){
+    h1 { font-size: 1.8rem; }
+    .geminiBox { flex: 1 1 100%; }
+}
+</style>
+</head>
+<body>
+
+<h1>Stride - GitHub Repo Optimizer</h1>
+
+<div id="menu">
+    <input type="text" id="githubLink" placeholder="Enter GitHub repo link">
+    <div style="display:flex; gap:0.5rem; flex-wrap: wrap;">
+        <button onclick="runAction('clone')">Clone</button>
+        <button onclick="runAction('optimize')">Optimize</button>
+        <button onclick="runAction('analyze')">Analyze</button>
+    </div>
+</div>
+
+<pre id="terminalOutput"></pre>
+<div id="geminiContainer"></div>
+
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+let repoFolders = {}; // link -> unique folder
+const GEMINI_API_KEY = "AIzaSyC4Ni0PbopCOwQ5hQujzHyyHCK4saLa_Qw";
+let geminiCache = { clone:null, optimize:null, analyze:null };
+
+function flattenJSON(obj, prefix='') {
+    let result = [];
+    for(const key in obj){
+        if(!obj.hasOwnProperty(key)) continue;
+        const value = obj[key];
+        const name = prefix ? `${prefix} → ${key}` : key;
+        if(typeof value === 'object' && value !== null){
+            result = result.concat(flattenJSON(value, name));
+        } else { result.push(`${name}: ${value}`); }
+    }
+    return result;
+}
+
+async function queryGemini(prompt){
+    try{
+        const res = await axios.post(
+            "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-pro:generateContent?key=" + GEMINI_API_KEY,
+            { contents:[{ parts:[{ text: prompt }] }] }
+        );
+        return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "No response from Gemini.";
+    } catch(err){
+        return "Gemini API Error: " + (err.response?.data?.error?.message || err.message);
+    }
+}
+function getFolderNameFromRepo(link){
+    // Example: https://github.com/torvalds/linux → github_torvalds_linux
+    const url = new URL(link);
+    const parts = url.pathname.split('/').filter(p => p); // remove empty
+    return `${url.hostname.replace(/\./g, "_")}_${parts.join("_")}`;
+}
+async function displayGeminiMarkdown(mdText, endpoint){
+    const geminiContainer = document.getElementById('geminiContainer');
+    let gemBox = document.getElementById(`gemini_${endpoint}`);
+    if(!gemBox){
+        gemBox = document.createElement('div');
+        gemBox.id = `gemini_${endpoint}`;
+        gemBox.className = 'geminiBox';
+        gemBox.innerHTML = `<h3>${endpoint.toUpperCase()} Gemini Summary</h3><div style="white-space: pre-wrap;">Loading Gemini summary...</div>`;
+        geminiContainer.appendChild(gemBox);
+    }
+    gemBox.querySelector('div').innerHTML = marked.parse(mdText);
+}
+
+async function runAction(endpoint){
+    const link = document.getElementById('githubLink').value;
+    const outputEl = document.getElementById('terminalOutput');
+    outputEl.textContent = `Running ${endpoint}...\n`;
+    const folder = getFolderNameFromRepo(link);
+    const url = `/repo/${endpoint}?url=${encodeURIComponent(link)}&path=./temp/${folder}`;
+
+    try{
+        const res = await fetch(url,{method:'POST'});
+        const text = await res.text();
+
+        let arr;
+        try{
+            const parsed = JSON.parse(text);
+            arr = Array.isArray(parsed)? parsed : flattenJSON(parsed);
+        }catch{
+            arr = [text];
+        }
+
+        outputEl.innerHTML = '';
+        arr.forEach(item=>{
+            const line = document.createElement('div');
+            if(item.includes('[HIGH PRIORITY]')) line.style.color='#f55';
+            else if(item.includes('[LARGE FILE]')) line.style.color='#ffa500';
+            else if(item.includes('[DOC GAP]')) line.style.color='#0af';
+            else line.style.color='#0ff';
+            line.textContent = `• ${item}`;
+            outputEl.appendChild(line);
+        });
+
+        // Skip Gemini summary for clone
+        if(endpoint !== "clone"){
+            if(!geminiCache[endpoint]){
+                displayGeminiMarkdown("Loading Gemini summary...", endpoint);
+                const summaryPrompt = `Summarize this repository ${endpoint} analysis clearly in markdown:\n${arr.join("\n")}`;
+                const summaryMarkdown = await queryGemini(summaryPrompt);
+                geminiCache[endpoint] = summaryMarkdown;
+            }
+            displayGeminiMarkdown(geminiCache[endpoint], endpoint);
+        }
+
+    }catch(err){
+        outputEl.textContent += 'Error: ' + err.message;
+    }
+}
+</script>
+
+</body>
+</html>
