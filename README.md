@@ -11,7 +11,7 @@
 <!-- First two images stacked -->
 # Demo
 <p align="center">
-  <img src="output.gif" width="1000" alt="Stride Demo"/>
+  <img src="output.gif" alt="Stride Demo"/>
 </p>
 
 # Initial Interface
