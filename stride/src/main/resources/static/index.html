@@ -68,13 +68,21 @@ h1 {
     border-radius: 12px;
     padding: 1rem;
     width: 100%;
-    margin-bottom: 1.5rem;
-    /* overflow-y: auto; */  /* remove scrolling */
     box-sizing: border-box;
-    white-space: pre-wrap;   /* allow wrapping */
-    word-break: break-word;  /* prevent overflow */
-    max-height: none;        /* no height limit */
-    font-size: 1rem;       /* increased font size */
+    white-space: pre-wrap;
+    word-break: break-word;
+
+    /* Scrolling */
+    max-height: 60vh; /* adjust height to fit layout */
+    overflow-y: auto;
+
+    /* Font size smaller for better fit */
+    font-size: 0.85rem;
+
+    /* Optional: add smooth scrolling */
+    scroll-behavior: smooth;
+
+    margin-bottom: 1rem;
 }
 
 
@@ -91,7 +99,7 @@ h1 {
     backdrop-filter: blur(8px);
     border-radius: 12px;
     padding: 1rem;
-    flex: 1 1 48%; /* 2 per row, flexible */
+    flex: 1 1 48%; /* 2 per row */
     min-width: 250px;
     box-sizing: border-box;
     overflow-y: auto;
@@ -103,14 +111,28 @@ h1 {
     color: #ffd600;
 }
 
+#chartsContainer {
+    padding-bottom: 1rem;
+    margin-top: 2rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); /* smaller min width */
+    gap: 1rem; /* smaller gap between charts */
+}
+
+
+.chartBox {
+    background: rgba(255,255,255,0.05);
+    padding: 1rem;
+    border-radius: 12px;
+}
+.chartBox h3 {
+    color: #ffd600;
+    margin-bottom: 0.5rem;
+}
+
 @media (max-width: 900px){
     #menu { max-width: 95%; }
     #terminalOutput { width: 95%; }
-}
-
-@media (max-width: 600px){
-    h1 { font-size: 1.8rem; }
-    .geminiBox { flex: 1 1 100%; }
 }
 </style>
 </head>
@@ -126,16 +148,34 @@ h1 {
         <button onclick="runAction('analyze')">Analyze</button>
     </div>
 </div>
-
-<pre id="terminalOutput"></pre>
+<div id="chartsContainer">
+    <div class="chartBox">
+        <h3>File Types Distribution</h3>
+        <canvas id="fileTypesChart"></canvas>
+    </div>
+    <div class="chartBox">
+        <h3>Comment Ratios</h3>
+        <canvas id="commentChart"></canvas>
+    </div>
+    <div class="chartBox">
+    <h3>Terminal</h3>
+    <pre id="terminalOutput"></pre>
+    </div>
+</div>
 <div id="geminiContainer"></div>
+
+
+
 
 <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <script>
-let repoFolders = {}; // link -> unique folder
+let repoFolders = {};
 const GEMINI_API_KEY = "AIzaSyC4Ni0PbopCOwQ5hQujzHyyHCK4saLa_Qw";
 let geminiCache = { clone:null, optimize:null, analyze:null };
+let charts = {};
 
 function flattenJSON(obj, prefix='') {
     let result = [];
@@ -162,9 +202,8 @@ async function queryGemini(prompt){
     }
 }
 function getFolderNameFromRepo(link){
-    // Example: https://github.com/torvalds/linux → github_torvalds_linux
     const url = new URL(link);
-    const parts = url.pathname.split('/').filter(p => p); // remove empty
+    const parts = url.pathname.split('/').filter(p => p);
     return `${url.hostname.replace(/\./g, "_")}_${parts.join("_")}`;
 }
 async function displayGeminiMarkdown(mdText, endpoint){
@@ -180,6 +219,33 @@ async function displayGeminiMarkdown(mdText, endpoint){
     gemBox.querySelector('div').innerHTML = marked.parse(mdText);
 }
 
+// Chart rendering
+function renderChart(id, type, labels, data, label){
+    const ctx = document.getElementById(id).getContext('2d');
+    if(charts[id]) charts[id].destroy();
+    charts[id] = new Chart(ctx, {
+        type,
+        data: {
+            labels,
+            datasets: [{
+                label,
+                data,
+                backgroundColor: [
+                    '#ffd600','#ff6f61','#4caf50','#2196f3','#9c27b0','#ff9800','#00bcd4'
+                ],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            plugins:{ legend:{ labels:{ color:'#fff' } } },
+            scales: type !== 'pie' ? {
+                x: { ticks:{ color:'#fff' } },
+                y: { ticks:{ color:'#fff' } }
+            } : {}
+        }
+    });
+}
+
 async function runAction(endpoint){
     const link = document.getElementById('githubLink').value;
     const outputEl = document.getElementById('terminalOutput');
@@ -191,14 +257,11 @@ async function runAction(endpoint){
         const res = await fetch(url,{method:'POST'});
         const text = await res.text();
 
-        let arr;
-        try{
-            const parsed = JSON.parse(text);
-            arr = Array.isArray(parsed)? parsed : flattenJSON(parsed);
-        }catch{
-            arr = [text];
-        }
+        let parsed;
+        try{ parsed = JSON.parse(text); }catch{ parsed = null; }
+        let arr = parsed ? flattenJSON(parsed) : [text];
 
+        // Print output
         outputEl.innerHTML = '';
         arr.forEach(item=>{
             const line = document.createElement('div');
@@ -210,7 +273,25 @@ async function runAction(endpoint){
             outputEl.appendChild(line);
         });
 
-        // Skip Gemini summary for clone
+        // Render charts if analysis data exists
+        if(parsed && endpoint === "analyze"){
+            if(parsed.fileTypes){
+                renderChart("fileTypesChart","pie",
+                    Object.keys(parsed.fileTypes),
+                    Object.values(parsed.fileTypes),
+                    "Files");
+            }
+            if(parsed.commentLinesPerType && parsed.linesPerType){
+                const labels = Object.keys(parsed.commentLinesPerType);
+                const data = labels.map(k=>{
+                    const total = parsed.linesPerType[k] || 0;
+                    return total ? ((parsed.commentLinesPerType[k]||0)/total*100).toFixed(1) : 0;
+                });
+                renderChart("commentChart","bar",labels,data,"Comment %");
+            }
+        }
+
+        // Gemini summaries
         if(endpoint !== "clone"){
             if(!geminiCache[endpoint]){
                 displayGeminiMarkdown("Loading Gemini summary...", endpoint);
@@ -220,12 +301,10 @@ async function runAction(endpoint){
             }
             displayGeminiMarkdown(geminiCache[endpoint], endpoint);
         }
-
     }catch(err){
         outputEl.textContent += 'Error: ' + err.message;
     }
 }
 </script>
-
 </body>
 </html>
