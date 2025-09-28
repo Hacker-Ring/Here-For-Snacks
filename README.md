@@ -5,3 +5,8 @@
 - Displays analysis and optimization insights side-by-side for clear, immediate understaning.
 - Organizes each repository in a uniquely named folder based on its metadata for easy tracking.
 - Designed for speed, clarity, and scalability, offering a sleek interface while handling complex repo operations efficiently.
+
+<img src ="4.png">
+<img src ="1.png">
+<img src ="2.png">
+<img src ="3.png">
