@@ -9,6 +9,11 @@
 ---
 <!-- First two images stacked -->
 <!-- First two images stacked -->
+# Demo
+<p align="center">
+  <img src="output.gif" width="1000" alt="Stride Demo"/>
+</p>
+
 # Initial Interface
 ![Image 4](4.png)
 
