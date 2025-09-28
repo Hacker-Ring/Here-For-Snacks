@@ -6,7 +6,20 @@
 - Organizes each repository in a uniquely named folder based on its metadata for easy tracking.
 - Designed for speed, clarity, and scalability, offering a sleek interface while handling complex repo operations efficiently.
 
-<img src ="4.png">
-<img src ="1.png">
-<img src ="2.png">
-<img src ="3.png">
+---
+<!-- First two images stacked -->
+<!-- First two images stacked -->
+# Initial Interface
+![Image 4](4.png)
+
+# Post-Processing
+![Image 1](1.png)
+
+# Summaries
+<!-- Last two images side by side and centered -->
+<table align="center">
+<tr>
+  <td><img src="2.png" width="300"/></td>
+  <td><img src="3.png" width="300"/></td>
+</tr>
+</table>
